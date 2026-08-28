@@ -7,7 +7,7 @@ name = "ifcx-core"
 version = "0.1.0"
 description = "Native IFC spatial and material relationships for Python"
 readme = "README.md"
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 license = "MPL-2.0"
 authors = [{ name = "IFCX Contributors" }]
 keywords = ["ifc", "bim", "spatial", "materials", "rust"]
