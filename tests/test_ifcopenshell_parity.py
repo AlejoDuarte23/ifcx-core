@@ -20,14 +20,13 @@ from ifcopenshell.util.unit import calculate_unit_scale
 
 
 EXPECTED_FIXTURE_SHA256 = "4f0bebf282ffed5a29c8f129995945950286b5294ab58f0b39723e0ecca4107f"
-DEFAULT_FIXTURE = Path(
-    "/Users/alejandroduarte/Downloads/BuildingBIMModel_omniclass_qto_enriched.ifc"
-)
 
 
 def fixture_path() -> Path:
     configured = os.environ.get("IFCX_PARITY_MODEL")
-    path = Path(configured) if configured else DEFAULT_FIXTURE
+    if not configured:
+        pytest.skip("set IFCX_PARITY_MODEL to the requested IFC comparison fixture")
+    path = Path(configured)
     if not path.is_file():
         pytest.skip("set IFCX_PARITY_MODEL to the requested IFC comparison fixture")
     return path
@@ -37,8 +36,7 @@ def fixture_path() -> Path:
 def compared() -> tuple[Any, dict[str, Any]]:
     path = fixture_path()
     source = path.read_bytes()
-    if path == DEFAULT_FIXTURE:
-        assert hashlib.sha256(source).hexdigest() == EXPECTED_FIXTURE_SHA256
+    assert hashlib.sha256(source).hexdigest() == EXPECTED_FIXTURE_SHA256
     return ifcopenshell.open(path), ifcx_core.model_data(source)
 
 

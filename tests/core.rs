@@ -2,14 +2,104 @@
 // License, v. 2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at https://mozilla.org/MPL/2.0/.
 
-use ifcx_core::analyze_ifc;
+use ifcx_core::{analyze_ifc, Error};
 
 fn wrap(body: &str) -> Vec<u8> {
+    wrap_schema("IFC4", body)
+}
+
+fn wrap_schema(schema: &str, body: &str) -> Vec<u8> {
     format!(
-        "ISO-10303-21;\nHEADER;\nFILE_SCHEMA(('IFC4'));\nENDSEC;\nDATA;\n{}\nENDSEC;\nEND-ISO-10303-21;",
-        body
+        "ISO-10303-21;\nHEADER;\nFILE_SCHEMA(('{}'));\nENDSEC;\nDATA;\n{}\nENDSEC;\nEND-ISO-10303-21;",
+        schema, body
     )
     .into_bytes()
+}
+
+#[test]
+fn accepts_only_ifc4_family_schemas() {
+    let body = "#1=IFCPROJECT('P',$,'Project',$,$,$,$,$,$);";
+
+    assert_eq!(
+        analyze_ifc(&wrap_schema("IFC4", body))
+            .unwrap()
+            .schema
+            .as_deref(),
+        Some("IFC4")
+    );
+    assert_eq!(
+        analyze_ifc(&wrap_schema("IFC4X3_ADD2", body))
+            .unwrap()
+            .schema
+            .as_deref(),
+        Some("IFC4X3")
+    );
+
+    let error = analyze_ifc(&wrap_schema("IFC2X3", body)).unwrap_err();
+    assert!(matches!(error, Error::InvalidIfc(_)));
+    assert!(error.to_string().contains("expected IFC4 or IFC4X3"));
+}
+
+#[test]
+fn rejects_missing_entities_and_missing_project() {
+    let no_entities = wrap("");
+    assert!(matches!(
+        analyze_ifc(&no_entities),
+        Err(Error::InvalidIfc(message)) if message.contains("no STEP entities")
+    ));
+
+    let no_project = wrap("#1=IFCWALL();");
+    assert!(matches!(
+        analyze_ifc(&no_project),
+        Err(Error::InvalidIfc(message)) if message.contains("no IfcProject")
+    ));
+}
+
+#[test]
+fn spatial_cycles_terminate_and_are_deterministic() {
+    let ifc = wrap(
+        r#"
+#1=IFCPROJECT('P',$,'Project',$,$,$,$,$,$);
+#10=IFCSITE('S',$,'Site',$,$,$,$,$,.ELEMENT.,$,$,$,$,$);
+#11=IFCBUILDING('B',$,'Building',$,$,$,$,$,.ELEMENT.,$,$,$);
+#100=IFCWALL();
+#110=IFCRELAGGREGATES('R1',$,$,$,#1,(#10));
+#111=IFCRELAGGREGATES('R2',$,$,$,#10,(#11));
+#112=IFCRELAGGREGATES('R3',$,$,$,#11,(#10));
+#113=IFCRELCONTAINEDINSPATIALSTRUCTURE('R4',$,$,$,(#100),#11);
+#114=IFCRELAGGREGATES('R5',$,$,$,#100,(#100));
+"#,
+    );
+
+    let first = analyze_ifc(&ifc).expect("cycles must be guarded");
+    let second = analyze_ifc(&ifc).expect("the same model must remain parseable");
+    assert_eq!(first, second);
+    assert_eq!(first.spatial.element_to_container.get(&100), Some(&11));
+    assert_eq!(
+        first.spatial.roots[0].children[0].children[0]
+            .children
+            .len(),
+        1
+    );
+    assert!(first.spatial.roots[0].children[0].children[0].children[0]
+        .children
+        .is_empty());
+}
+
+#[test]
+fn unresolved_material_references_are_preserved_as_edges_without_panicking() {
+    let ifc = wrap(
+        r#"
+#1=IFCPROJECT('P',$,'Project',$,$,$,$,$,$);
+#10=IFCWALL();
+#20=IFCRELASSOCIATESMATERIAL('M',$,$,$,(#10),#999);
+"#,
+    );
+
+    let data = analyze_ifc(&ifc).expect("a dangling reference is recoverable");
+    assert_eq!(data.relationships.edges.len(), 1);
+    assert_eq!(data.materials.associations[0].relating_material_id, 999);
+    assert!(data.materials.element_materials.is_empty());
 }
 
 #[test]
