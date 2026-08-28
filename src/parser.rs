@@ -28,6 +28,13 @@ pub(crate) struct ParsedModel {
 }
 
 pub(crate) fn parse_model(bytes: &[u8]) -> Result<ParsedModel, Error> {
+    let schema = detect_schema(bytes);
+    if !matches!(schema.as_deref(), Some("IFC4" | "IFC4X3")) {
+        return Err(Error::InvalidIfc(
+            "unsupported or missing schema; expected IFC4 or IFC4X3".to_string(),
+        ));
+    }
+
     let mut entity_types = BTreeMap::new();
     let mut relevant_ids = Vec::new();
     let mut project_ids = Vec::new();
@@ -99,7 +106,7 @@ pub(crate) fn parse_model(bytes: &[u8]) -> Result<ParsedModel, Error> {
     }
 
     Ok(ParsedModel {
-        schema: detect_schema(bytes),
+        schema,
         entity_types,
         records,
         project_ids,
